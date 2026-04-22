@@ -5,11 +5,10 @@
 
 - **完全 Node.js 实现**：LLM 流式会话、Agent 主循环、工具调度全部用 TypeScript 重写
 - **9 个原子工具**：`code_run` · `file_read` · `file_write` · `file_patch` · `web_scan` · `web_execute_js` · `update_working_checkpoint` · `ask_user` · `start_long_term_update`
-- **多 LLM 后端**：OpenAI 兼容 / Anthropic 兼容 / Mixin 故障转移
+- **多 LLM 后端**：OpenAI 兼容 / Anthropic Claude / 本地模型（Ollama/LM Studio/vLLM）/ Mixin 故障转移
 - **L0-L4 四层记忆体系**：对齐 memory 结构
 - **skill_search 客户端**：支持从远程技能库语义检索
-- **现代聊天 UI**：消息流、工具调用卡片、思考/总结标签高亮、深色主题
-- **多会话持久化**：自动保存对话历史到用户数据目录
+- **现代聊天 UI**：消息流、工具调用卡片、思考/总结标签高亮、深色主题、会话历史管理
 
 ## 架构
 
@@ -20,7 +19,7 @@ XAgent/
 │   │   ├── main.ts              # 入口 + IPC 路由
 │   │   ├── preload.ts           # 安全桥接
 │   │   └── core/
-│   │       ├── llmcore.ts       # LLM 会话（NativeOAI / NativeClaude / Mixin）
+│   │       ├── llmcore.ts       # LLM 会话（NativeOAI / NativeClaude / Local / Mixin）
 │   │       ├── agentLoop.ts     # Agent 主循环
 │   │       ├── sse.ts           # SSE 流解析
 │   │       ├── messages.ts      # 消息格式转换
@@ -34,10 +33,13 @@ XAgent/
 │   │   │   ├── MessageBubble.tsx
 │   │   │   ├── ToolCallCard.tsx
 │   │   │   ├── InputBar.tsx
-│   │   │   └── SettingsPanel.tsx
+│   │   │   ├── SettingsPanel.tsx
+│   │   │   └── ConfirmDialog.tsx
 │   │   └── styles.css
 │   └── shared/
 │       └── types.ts             # 主/渲染进程共享类型
+├── electron/
+│   └── dev.js                   # 开发模式 Electron 启动脚本
 ├── assets/
 │   ├── tools_schema.json        # 9 工具 Schema
 │   ├── sys_prompt.txt           # 系统提示词

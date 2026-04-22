@@ -1,0 +1,138 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "code_run",
+      "description": "代码执行器。优先使用 python/node。支持 Multi-call。禁硬编码大量数据。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": { "type": "string", "description": "要执行的代码" },
+          "type": { "type": "string", "enum": ["python", "node", "powershell", "bash"], "description": "代码类型", "default": "python" },
+          "timeout": { "type": "integer", "description": "执行超时秒数", "default": 60 },
+          "cwd": { "type": "string", "description": "工作目录，默认为当前工作目录" }
+        },
+        "required": ["script"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "file_read",
+      "description": "读取文件内容。建议在修改文件前先读取，以确保获取最新的上下文和行号。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "文件相对或绝对路径" },
+          "start": { "type": "integer", "description": "起始行号（从 1 开始）", "default": 1 },
+          "count": { "type": "integer", "description": "读取行数", "default": 200 },
+          "keyword": { "type": "string", "description": "可选关键字，返回首个匹配及上下文" },
+          "show_linenos": { "type": "boolean", "description": "显示行号", "default": true }
+        },
+        "required": ["path"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "file_patch",
+      "description": "精细局部修改。在文件中寻找唯一 old_content 块并替换为 new_content。空格/缩进必须完全匹配。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "old_content": { "type": "string", "description": "必须唯一存在的原始文本块" },
+          "new_content": { "type": "string", "description": "新内容" }
+        },
+        "required": ["path", "old_content", "new_content"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "file_write",
+      "description": "创建/覆盖/追加文件。用于大块写入，精细修改请用 file_patch。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string", "description": "要写入的内容" },
+          "mode": { "type": "string", "enum": ["overwrite", "append", "prepend"], "default": "overwrite" }
+        },
+        "required": ["path", "content"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_scan",
+      "description": "打开或扫描网页，获取简化 HTML/文本与当前标签列表。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "要打开的 URL（可选，不填则扫描当前活动页）" },
+          "tabs_only": { "type": "boolean", "description": "只返回标签列表，不抓取 HTML" },
+          "text_only": { "type": "boolean", "description": "只返回纯文本" },
+          "switch_tab_id": { "type": "string", "description": "切换到指定标签后再扫描" }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_execute_js",
+      "description": "在浏览器中执行 JavaScript，用于读取/操作页面。禁猜测，准确操作以减少 web_scan 调用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": { "type": "string", "description": "JS 代码" },
+          "switch_tab_id": { "type": "string", "description": "切换到指定标签后再执行" },
+          "save_to_file": { "type": "string", "description": "结果存入文件（适合长结果）" }
+        },
+        "required": ["script"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_working_checkpoint",
+      "description": "短期工作便签，每轮自动注入上下文，防长任务信息丢失。前中期调用，非结束时。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "key_info": { "type": "string", "description": "替换当前便签（<200 tokens）" },
+          "related_sop": { "type": "string", "description": "相关 SOP 名称，必要时需要再读" }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ask_user",
+      "description": "当需要用户决策、提供额外信息或遇到无法自动解决的阻碍时，调用此工具中断任务并提问。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": { "type": "string", "description": "向用户提出的明确问题" },
+          "candidates": { "type": "array", "items": { "type": "string" }, "description": "可选的快捷选项" }
+        },
+        "required": ["question"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "start_long_term_update",
+      "description": "发现值得长期记忆的信息（环境事实/用户偏好/避坑经验）时调用此工具开始提炼。已更新过或简单任务无需调用。",
+      "parameters": { "type": "object", "properties": {} }
+    }
+  }
+]

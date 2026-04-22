@@ -1,0 +1,15 @@
+# [Global Memory Insight]
+
+L0(META-SOP): memory_management_sop
+L2: 现空
+L3: （待补充，按需添加 SOP 引用）
+L4: L4_raw_sessions/
+
+[RULES]
+1. 搜索先行: 搜文件名优先使用系统 find/glob，禁止递归扫描大目录; 优先看 cwd，禁猜路径
+2. 交叉验证: 禁信摘要, 数值进详情页核实
+3. 编码安全: 改前必读; 文件写入前先 file_read 确认
+4. 闭环: 物理模拟后确认; 3次失败请求干预; Git 完整闭环
+5. 进程: 禁无条件杀进程, 精确 PID
+6. web JS: 输入用原生 setter + 事件链, 点击前检 disabled, 注意引号转义
+7. SOP: 读 SOP 禁凭印象, 有 utils 必用

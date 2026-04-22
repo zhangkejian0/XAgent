@@ -14,6 +14,12 @@ const DEFAULT_LLM: LLMConfig = {
   model: '',
 };
 
+const LOCAL_MODEL_PRESETS: Record<string, { apibase: string; label: string }> = {
+  ollama: { apibase: 'http://localhost:11434/v1', label: 'Ollama' },
+  lmstudio: { apibase: 'http://localhost:1234/v1', label: 'LM Studio' },
+  vllm: { apibase: 'http://localhost:8000/v1', label: 'vLLM' },
+};
+
 export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
   const [settings, setSettings] = useState<AppSettings | null>(null);
 
@@ -120,11 +126,52 @@ export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
                   <select value={llm.type} onChange={(e) => updateLLM(idx, { type: e.target.value as any })}>
                     <option value="native_oai">native_oai (OpenAI 兼容)</option>
                     <option value="native_claude">native_claude (Anthropic)</option>
+                    <option value="local">local (本地模型)</option>
                     <option value="mixin">mixin (故障转移)</option>
                   </select>
                 </div>
               </div>
-              {llm.type !== 'mixin' && (
+              {llm.type === 'local' && (
+                <>
+                  <div className="form-group" style={{ marginBottom: 8 }}>
+                    <label>本地服务预设</label>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const preset = LOCAL_MODEL_PRESETS[e.target.value];
+                        if (preset) updateLLM(idx, { apibase: preset.apibase });
+                      }}
+                    >
+                      <option value="">-- 选择预设或手动填写 --</option>
+                      {Object.entries(LOCAL_MODEL_PRESETS).map(([key, { label }]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-row">
+                    <div className="form-group" style={{ marginBottom: 8 }}>
+                      <label>API Base URL</label>
+                      <input
+                        value={llm.apibase}
+                        placeholder="http://localhost:11434/v1"
+                        onChange={(e) => updateLLM(idx, { apibase: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 8 }}>
+                      <label>模型名</label>
+                      <input
+                        value={llm.model}
+                        placeholder="llama3 / qwen2.5 等"
+                        onChange={(e) => updateLLM(idx, { model: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                    本地模型无需 API Key，确保本地服务已启动（如 Ollama、LM Studio）
+                  </small>
+                </>
+              )}
+              {llm.type !== 'mixin' && llm.type !== 'local' && (
                 <>
                   <div className="form-group" style={{ marginBottom: 8 }}>
                     <label>API Key</label>

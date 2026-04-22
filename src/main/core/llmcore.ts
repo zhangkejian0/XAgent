@@ -192,10 +192,13 @@ export class NativeOAISession extends BaseSession {
     if (tools?.length) payload.tools = tools;
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.cfg.apikey}`,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     };
+    // 本地模型不需要 Authorization，apikey 为空时不设置
+    if (this.cfg.apikey && this.cfg.apikey.trim()) {
+      headers['Authorization'] = `Bearer ${this.cfg.apikey}`;
+    }
 
     return yield* streamWithRetry(url, headers, payload, parseOpenAISSE, {
       maxRetries: this.maxRetries,
@@ -553,7 +556,8 @@ export function buildSessions(configs: LLMConfig[]): Map<string, LLMSession> {
       const s = new NativeClaudeSession(cfg);
       sessions.set(s.name, s);
       bases.push(s);
-    } else if (cfg.type === 'native_oai') {
+    } else if (cfg.type === 'native_oai' || cfg.type === 'local') {
+      // local 类型使用 OpenAI 兼容 API，但不需要 API Key
       const s = new NativeOAISession(cfg);
       sessions.set(s.name, s);
       bases.push(s);

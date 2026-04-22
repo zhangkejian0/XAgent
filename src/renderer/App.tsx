@@ -136,7 +136,11 @@ export const App: React.FC = () => {
 
   const send = async (text: string) => {
     setRunning(true);
-    await window.xagent.sendTask(text);
+    // 新会话发送第一条消息后，获取并设置新创建的会话 ID
+    const { sessionId } = await window.xagent.sendTask(text);
+    if (!currentConvId && sessionId) {
+      setCurrentConvId(sessionId);
+    }
   };
 
   const abort = async () => {

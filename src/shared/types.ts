@@ -6,14 +6,14 @@
 export interface LLMConfig {
   /** /llms 显示名 & mixin 引用名 */
   name: string;
-  /** API Key */
+  /** API Key（本地模型可留空） */
   apikey: string;
   /** API Base URL */
   apibase: string;
   /** 模型名 */
   model: string;
-  /** 类型：native_oai / native_claude / mixin */
-  type: 'native_oai' | 'native_claude' | 'mixin';
+  /** 类型：native_oai / native_claude / local / mixin */
+  type: 'native_oai' | 'native_claude' | 'local' | 'mixin';
   /** Mixin 引用的子会话 name 列表（仅 type=mixin 时使用） */
   llm_nos?: string[];
   /** 推理等级 */

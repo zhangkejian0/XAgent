@@ -1,21 +1,31 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings, MainEvent, UIMessage } from '@shared/types';
 import { MessageBubble } from './components/MessageBubble';
-import { InputBar } from './components/InputBar';
+import { InputBar, type InputBarHandle } from './components/InputBar';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 interface ConvItem { id: string; title: string; updatedAt: number; }
 
 interface AskState { question: string; candidates?: string[] }
+
+interface ConfirmState {
+  message: string;
+  title?: string;
+  onConfirm: () => void | Promise<void>;
+}
 
 export const App: React.FC = () => {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [llms, setLLMs] = useState<{ name: string; active: boolean }[]>([]);
   const [convs, setConvs] = useState<ConvItem[]>([]);
+  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ask, setAsk] = useState<AskState | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<InputBarHandle>(null);
 
   const refreshMeta = useCallback(async () => {
     setLLMs(await window.xagent.listLLMs());
@@ -25,7 +35,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     refreshMeta();
     // 启动时恢复主进程当前会话
-    window.xagent.getCurrentConversation().then(({ messages }) => {
+    window.xagent.getCurrentConversation().then(({ id, messages }) => {
+      if (id) setCurrentConvId(id);
       if (messages && messages.length > 0) setMessages(messages);
     });
     const unsub = window.xagent.onEvent((evt) => handleEvent(evt));
@@ -100,6 +111,7 @@ export const App: React.FC = () => {
     }
     if (evt.type === 'task_done') {
       setRunning(false);
+      setAsk(null);
       refreshMeta();
       return;
     }
@@ -148,37 +160,52 @@ export const App: React.FC = () => {
     await resetTransientState();
     await window.xagent.clearHistory();
     setMessages([]);
+    setCurrentConvId(null);
     refreshMeta();
+    inputRef.current?.focus();
   };
 
   const loadConv = async (id: string) => {
     await resetTransientState();
     const msgs = await window.xagent.loadConversation(id);
     setMessages(msgs);
+    setCurrentConvId(id);
+    inputRef.current?.focus();
   };
 
-  const deleteConv = async (id: string, e: React.MouseEvent) => {
+  const deleteConv = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const target = convs.find((c) => c.id === id);
-    if (!window.confirm(`确定删除对话"${target?.title || id}"？此操作不可恢复。`)) return;
-    const ok = await window.xagent.deleteConversation(id);
-    if (ok) {
-      // 若删的是当前会话，同步清空 UI 并重置瞬态状态
-      const { id: curId } = await window.xagent.getCurrentConversation();
-      if (!curId) {
-        await resetTransientState();
-        setMessages([]);
-      }
-      refreshMeta();
-    }
+    setConfirm({
+      title: '删除对话',
+      message: `确定删除对话"${target?.title || id}"？此操作不可恢复。`,
+      onConfirm: async () => {
+        const ok = await window.xagent.deleteConversation(id);
+        if (ok) {
+          if (id === currentConvId) {
+            setMessages([]);
+            setCurrentConvId(null);
+          }
+          refreshMeta();
+          inputRef.current?.focus();
+        }
+      },
+    });
   };
 
-  const clearAllConvs = async () => {
-    if (!window.confirm(`确定清空全部历史对话？此操作不可恢复。`)) return;
-    await window.xagent.deleteAllConversations();
-    await resetTransientState();
-    setMessages([]);
-    refreshMeta();
+  const clearAllConvs = () => {
+    setConfirm({
+      title: '清空历史',
+      message: '确定清空全部历史对话？此操作不可恢复。',
+      onConfirm: async () => {
+        await window.xagent.deleteAllConversations();
+        await resetTransientState();
+        setMessages([]);
+        setCurrentConvId(null);
+        refreshMeta();
+        inputRef.current?.focus();
+      },
+    });
   };
 
   const saveSettings = async (s: AppSettings) => {
@@ -220,7 +247,11 @@ export const App: React.FC = () => {
             </div>
           )}
           {convs.map((c) => (
-            <div key={c.id} className="sidebar-item conv-item" onClick={() => loadConv(c.id)}>
+            <div
+              key={c.id}
+              className={`sidebar-item conv-item${c.id === currentConvId ? ' active' : ''}`}
+              onClick={() => loadConv(c.id)}
+            >
               <span className="conv-title">💬 {c.title}</span>
               <button
                 className="conv-delete"
@@ -279,12 +310,28 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        <InputBar running={running || !!ask} onSend={send} onAbort={abort} />
+        <InputBar ref={inputRef} running={running || !!ask} onSend={send} onAbort={abort} />
       </main>
 
       {settingsOpen && (
         <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={saveSettings} />
       )}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message || ''}
+        danger
+        onCancel={() => {
+          setConfirm(null);
+          inputRef.current?.focus();
+        }}
+        onConfirm={async () => {
+          const c = confirm;
+          setConfirm(null);
+          if (c) await c.onConfirm();
+        }}
+      />
     </div>
   );
 };

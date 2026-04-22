@@ -347,12 +347,14 @@ function setupIPC(): void {
   ipcMain.handle('conv:delete', (_e, id: string) => {
     const ok = configStore.deleteConversation(id);
     if (ok && id === currentConversationId) {
-      // 删的是当前会话，清空所有瞬态状态
+      // 删的是当前会话，清空所有瞬态状态并通知渲染进程
       stopSignal.aborted = true;
       pendingAskUser = null;
       if (activeSession) activeSession.clearHistory();
       conversationMessages = [];
       currentConversationId = null;
+      // 通知渲染进程重置 running 状态
+      mainWindow?.webContents.send('xagent:event', { type: 'task_done', reason: 'deleted' });
     }
     return ok;
   });
@@ -373,6 +375,15 @@ function setupIPC(): void {
 
   ipcMain.handle('devtools:open', () => {
     mainWindow?.webContents.openDevTools({ mode: 'detach' });
+  });
+
+  // 重新拿回键盘焦点：原生 confirm/alert 关闭后，webContents 会失去键盘焦点，
+  // 表现为 textarea 有聚焦边框但无光标、无法输入
+  ipcMain.handle('window:focus', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.webContents.focus();
+    }
   });
 }
 

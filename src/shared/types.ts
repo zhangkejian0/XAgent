@@ -178,6 +178,8 @@ export interface XAgentAPI {
   openUserData: () => void;
   /** 打开开发者工具 */
   openDevTools: () => void;
+  /** 重新让窗口获得键盘焦点（原生 confirm/alert 关闭后调用） */
+  focusWindow: () => Promise<void>;
 }
 
 declare global {

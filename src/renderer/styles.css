@@ -109,7 +109,11 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 .sidebar-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
-.sidebar-item.active { background: var(--bg-elevated); color: var(--text-primary); }
+.sidebar-item.active {
+  background: rgba(124, 124, 245, 0.15);
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent);
+}
 
 /* 对话历史条目 */
 .conv-item { position: relative; }
@@ -597,6 +601,41 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* 自定义确认对话框 */
+.confirm-dialog {
+  width: 380px;
+  max-width: 90vw;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.confirm-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 18px;
+  word-break: break-word;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn.danger-solid {
+  background: var(--error);
+  color: #fff;
+  border-color: transparent;
+}
+.btn.danger-solid:hover { background: #ef5454; }
 
 /* Ask User 对话框 */
 .ask-banner {

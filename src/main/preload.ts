@@ -22,6 +22,7 @@ const api = {
   deleteAllConversations: (): Promise<number> => ipcRenderer.invoke('conv:delete-all'),
   openUserData: () => ipcRenderer.invoke('conv:open-userdata'),
   openDevTools: () => ipcRenderer.invoke('devtools:open'),
+  focusWindow: () => ipcRenderer.invoke('window:focus'),
   onEvent: (cb: (evt: MainEvent) => void) => {
     const handler = (_e: any, evt: MainEvent) => cb(evt);
     ipcRenderer.on('xagent:event', handler);

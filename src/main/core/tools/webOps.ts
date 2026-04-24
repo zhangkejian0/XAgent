@@ -6,6 +6,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { registerTool, type ToolContext, type ToolResult } from './types.js';
+import type { FileCategory } from '../fileManager.js';
 
 /** 浏览器窗口管理（延迟加载 Electron，避免非渲染环境 import 失败） */
 class WebDriver {
@@ -168,6 +169,12 @@ registerTool('web_execute_js', async function* (args, ctx: ToolContext): AsyncGe
       fs.writeFileSync(abs, content);
       result.js_return = smartFormat(String(ret), 170);
       result.js_return += `\n\n[已保存完整内容到 ${abs}]`;
+      
+      // 注册到 FileManager
+      if (ctx.fileManager) {
+        const category = ctx.fileManager.inferCategory(abs);
+        ctx.fileManager.registerFile(abs, category, ctx.sessionId);
+      }
     }
     const show = smartFormat(JSON.stringify(result, null, 2), 300);
     yield `JS 执行结果:\n${show}\n`;

@@ -24,6 +24,8 @@ export const App: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ask, setAsk] = useState<AskState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  /** 标记是否刚完成一轮对话（用于显示记忆触发提示） */
+  const [justCompleted, setJustCompleted] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<InputBarHandle>(null);
 
@@ -112,6 +114,10 @@ export const App: React.FC = () => {
     if (evt.type === 'task_done') {
       setRunning(false);
       setAsk(null);
+      // 如果有消息，标记刚完成对话
+      if (messages.length > 0) {
+        setJustCompleted(true);
+      }
       refreshMeta();
       return;
     }
@@ -136,11 +142,18 @@ export const App: React.FC = () => {
 
   const send = async (text: string) => {
     setRunning(true);
+    setJustCompleted(false);  // 发送新消息时重置完成状态
     // 新会话发送第一条消息后，获取并设置新创建的会话 ID
     const { sessionId } = await window.xagent.sendTask(text);
     if (!currentConvId && sessionId) {
       setCurrentConvId(sessionId);
     }
+  };
+
+  const triggerMemory = async () => {
+    setRunning(true);
+    setJustCompleted(false);
+    await window.xagent.triggerMemoryUpdate();
   };
 
   const abort = async () => {
@@ -165,6 +178,7 @@ export const App: React.FC = () => {
     await window.xagent.clearHistory();
     setMessages([]);
     setCurrentConvId(null);
+    setJustCompleted(false);  // 新对话时重置完成状态
     refreshMeta();
     inputRef.current?.focus();
   };
@@ -174,6 +188,7 @@ export const App: React.FC = () => {
     const msgs = await window.xagent.loadConversation(id);
     setMessages(msgs);
     setCurrentConvId(id);
+    setJustCompleted(false);  // 切换对话时重置完成状态
     inputRef.current?.focus();
   };
 
@@ -314,7 +329,14 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        <InputBar ref={inputRef} running={running || !!ask} onSend={send} onAbort={abort} />
+        <InputBar
+          ref={inputRef}
+          running={running || !!ask}
+          onSend={send}
+          onAbort={abort}
+          showMemoryTrigger={justCompleted && messages.length > 0}
+          onTriggerMemory={triggerMemory}
+        />
       </main>
 
       {settingsOpen && (

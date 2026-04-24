@@ -10,6 +10,7 @@ import { buildSessions, type LLMSession } from './core/llmcore.js';
 import { runAgentLoop, type AgentEvent } from './core/agentLoop.js';
 import { ConfigStore } from './core/config.js';
 import { initMemoryDir, getSystemPrompt } from './core/memory.js';
+import { FileManager } from './core/fileManager.js';
 
 // ─── 全局状态 ────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
@@ -256,6 +257,9 @@ function setupIPC(): void {
     }
     initMemoryDir(memoryDir, getAssetsDir());
 
+    // 初始化 FileManager
+    const fileManager = new FileManager(workspaceDir);
+
     const systemPrompt =
       settings.system_prompt_override?.trim() ||
       getSystemPrompt(workspaceDir, memoryDir, getAssetsDir());
@@ -263,6 +267,8 @@ function setupIPC(): void {
     const ctx = {
       cwd: workspaceDir,
       memoryDir,
+      fileManager,
+      sessionId: currentConversationId || undefined,
       working: {} as Record<string, any>,
       currentTurn: 0,
       historyInfo: [] as string[],
@@ -384,6 +390,116 @@ function setupIPC(): void {
       mainWindow.focus();
       mainWindow.webContents.focus();
     }
+  });
+
+  // 触发记忆更新：发送特殊消息让 Agent 调用 start_long_term_update
+  ipcMain.handle('memory:trigger', async () => {
+    if (!activeSession) {
+      mainWindow?.webContents.send('xagent:event', {
+        type: 'error',
+        message: '未配置 LLM，请先在设置中添加',
+      } as MainEvent);
+      return { success: false };
+    }
+    if (conversationMessages.length === 0) {
+      mainWindow?.webContents.send('xagent:event', {
+        type: 'error',
+        message: '当前对话为空，无法触发记忆更新',
+      } as MainEvent);
+      return { success: false };
+    }
+
+    stopSignal = { aborted: false };
+
+    // 发送触发记忆的特殊指令
+    const triggerQuery = '[USER REQUEST] 请根据本次对话内容，触发 start_long_term_update 工具，提炼并更新长期记忆。';
+
+    const userMsg: UIMessage = {
+      id: `u_${Date.now()}`,
+      role: 'user',
+      content: triggerQuery,
+      timestamp: Date.now(),
+    };
+    conversationMessages.push(userMsg);
+    persistCurrentConversation();
+    mainWindow?.webContents.send('xagent:user-msg', userMsg);
+
+    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+    const fileManager = new FileManager(workspaceDir);
+    const systemPrompt =
+      settings.system_prompt_override?.trim() ||
+      getSystemPrompt(workspaceDir, memoryDir, getAssetsDir());
+
+    const ctx = {
+      cwd: workspaceDir,
+      memoryDir,
+      fileManager,
+      sessionId: currentConversationId || undefined,
+      working: {} as Record<string, any>,
+      currentTurn: 0,
+      historyInfo: [] as string[],
+      settings,
+      stopSignal,
+      emit: () => {},
+      askUser: async (question: string, candidates?: string[]): Promise<string> => {
+        return new Promise<string>((resolve) => {
+          pendingAskUser = { resolve, question };
+          mainWindow?.webContents.send('xagent:event', {
+            type: 'ask_user',
+            question,
+            candidates,
+          } as MainEvent);
+        });
+      },
+      responseContent: '',
+    };
+
+    runAgentLoop({
+      session: activeSession,
+      userInput: triggerQuery,
+      systemPrompt,
+      tools,
+      ctx,
+      maxTurns: 10,
+      emit: (evt) => emitToRenderer(evt),
+    })
+      .then(() => persistCurrentConversation())
+      .catch((e) => {
+        persistCurrentConversation();
+        mainWindow?.webContents.send('xagent:event', {
+          type: 'error',
+          message: String(e?.message || e),
+        } as MainEvent);
+      });
+
+    return { success: true };
+  });
+
+  // ─── 文件管理 IPC ────────────────────────────────────────────
+  ipcMain.handle('files:list', () => {
+    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+    const fileManager = new FileManager(workspaceDir);
+    return {
+      files: fileManager.getFiles(),
+      stats: fileManager.getStats(),
+      // 显示真实工作目录，让用户清楚文件管理范围
+      xagentDir: fileManager.getCwd(),
+    };
+  });
+
+  ipcMain.handle('files:clean', (_e, categories?: string[]) => {
+    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+    const fileManager = new FileManager(workspaceDir);
+    const cats = categories as any[];
+    return fileManager.cleanFiles(cats);
+  });
+
+  ipcMain.handle('files:open-xagent-dir', () => {
+    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+    const fileManager = new FileManager(workspaceDir);
+    // 打开工作目录（cwd），用户可在其中看到 .xagent 子目录及其他文件
+    shell.openPath(fileManager.getCwd());
   });
 }
 

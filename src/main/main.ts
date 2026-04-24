@@ -2,7 +2,7 @@
 //  Electron 主进程入口
 // ═══════════════════════════════════════════════════════════════
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import type { AppSettings, MainEvent, UIMessage } from '@shared/types';
@@ -11,6 +11,7 @@ import { runAgentLoop, type AgentEvent } from './core/agentLoop.js';
 import { ConfigStore } from './core/config.js';
 import { initMemoryDir, getSystemPrompt } from './core/memory.js';
 import { FileManager } from './core/fileManager.js';
+import { listSkills, readSkill, exportSkill, buildReusePrompt } from './core/skills.js';
 
 // ─── 全局状态 ────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
@@ -182,6 +183,100 @@ function createWindow(): void {
   });
 }
 
+// ─── 启动一次 Agent 任务（task:send / memory:trigger / skills:reuse 共用） ───
+async function runTaskInternal(
+  query: string,
+  opts?: { maxTurns?: number },
+): Promise<{ sessionId: string }> {
+  if (!activeSession) {
+    mainWindow?.webContents.send('xagent:event', {
+      type: 'error',
+      message: '未配置 LLM，请先在设置中添加',
+    } as MainEvent);
+    return { sessionId: '' };
+  }
+  stopSignal = { aborted: false };
+
+  if (!currentConversationId) {
+    currentConversationId = `conv_${Date.now()}`;
+    conversationMessages = [];
+  }
+
+  const userMsg: UIMessage = {
+    id: `u_${Date.now()}`,
+    role: 'user',
+    content: query,
+    timestamp: Date.now(),
+  };
+  conversationMessages.push(userMsg);
+  persistCurrentConversation();
+  mainWindow?.webContents.send('xagent:user-msg', userMsg);
+
+  const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+  const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  const legacyMem = path.join(workspaceDir, 'memory');
+  if (!fs.existsSync(memoryDir) && fs.existsSync(legacyMem)) {
+    try {
+      fs.mkdirSync(path.dirname(memoryDir), { recursive: true });
+      fs.renameSync(legacyMem, memoryDir);
+      console.log(`[migrate] memory 迁移: ${legacyMem} → ${memoryDir}`);
+    } catch (e) {
+      console.warn('[migrate] memory 迁移失败（可忽略）:', e);
+    }
+  }
+  initMemoryDir(memoryDir, getAssetsDir());
+
+  const fileManager = new FileManager(workspaceDir);
+  const systemPrompt =
+    settings.system_prompt_override?.trim() ||
+    getSystemPrompt(workspaceDir, memoryDir, getAssetsDir());
+
+  const ctx = {
+    cwd: workspaceDir,
+    memoryDir,
+    fileManager,
+    sessionId: currentConversationId || undefined,
+    working: {} as Record<string, any>,
+    currentTurn: 0,
+    historyInfo: [] as string[],
+    settings,
+    stopSignal,
+    emit: () => { /* unused, UI via emitToRenderer */ },
+    askUser: async (question: string, candidates?: string[]): Promise<string> => {
+      return new Promise<string>((resolve) => {
+        pendingAskUser = { resolve, question };
+        mainWindow?.webContents.send('xagent:event', {
+          type: 'ask_user',
+          question,
+          candidates,
+        } as MainEvent);
+      });
+    },
+    responseContent: '',
+  };
+
+  runAgentLoop({
+    session: activeSession,
+    userInput: query,
+    systemPrompt,
+    tools,
+    ctx,
+    maxTurns: opts?.maxTurns ?? 40,
+    emit: (evt) => emitToRenderer(evt),
+  })
+    .then(() => persistCurrentConversation())
+    .catch((e) => {
+      persistCurrentConversation();
+      mainWindow?.webContents.send('xagent:event', {
+        type: 'error',
+        message: String(e?.message || e),
+      } as MainEvent);
+    });
+
+  return { sessionId: currentConversationId };
+}
+
 // ─── IPC 路由 ────────────────────────────────────────────────
 function setupIPC(): void {
   ipcMain.handle('settings:get', () => settings);
@@ -215,98 +310,7 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('task:send', async (_e, query: string) => {
-    if (!activeSession) {
-      mainWindow?.webContents.send('xagent:event', {
-        type: 'error',
-        message: '未配置 LLM，请先在设置中添加',
-      } as MainEvent);
-      return { sessionId: '' };
-    }
-    stopSignal = { aborted: false };
-
-    // 准备对话 ID
-    if (!currentConversationId) {
-      currentConversationId = `conv_${Date.now()}`;
-      conversationMessages = [];
-    }
-
-    // 追加 user 消息到 UI（以及持久化）
-    const userMsg: UIMessage = {
-      id: `u_${Date.now()}`,
-      role: 'user',
-      content: query,
-      timestamp: Date.now(),
-    };
-    conversationMessages.push(userMsg);
-    persistCurrentConversation();
-    mainWindow?.webContents.send('xagent:user-msg', userMsg);
-
-    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
-    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
-    fs.mkdirSync(workspaceDir, { recursive: true });
-    // 旧数据迁移：老版本 memory 曾经落在 workspaceDir/memory 下
-    const legacyMem = path.join(workspaceDir, 'memory');
-    if (!fs.existsSync(memoryDir) && fs.existsSync(legacyMem)) {
-      try {
-        fs.mkdirSync(path.dirname(memoryDir), { recursive: true });
-        fs.renameSync(legacyMem, memoryDir);
-        console.log(`[migrate] memory 迁移: ${legacyMem} → ${memoryDir}`);
-      } catch (e) {
-        console.warn('[migrate] memory 迁移失败（可忽略）:', e);
-      }
-    }
-    initMemoryDir(memoryDir, getAssetsDir());
-
-    // 初始化 FileManager
-    const fileManager = new FileManager(workspaceDir);
-
-    const systemPrompt =
-      settings.system_prompt_override?.trim() ||
-      getSystemPrompt(workspaceDir, memoryDir, getAssetsDir());
-
-    const ctx = {
-      cwd: workspaceDir,
-      memoryDir,
-      fileManager,
-      sessionId: currentConversationId || undefined,
-      working: {} as Record<string, any>,
-      currentTurn: 0,
-      historyInfo: [] as string[],
-      settings,
-      stopSignal,
-      emit: () => { /* unused, UI via emitToRenderer */ },
-      askUser: async (question: string, candidates?: string[]): Promise<string> => {
-        return new Promise<string>((resolve) => {
-          pendingAskUser = { resolve, question };
-          mainWindow?.webContents.send('xagent:event', {
-            type: 'ask_user',
-            question,
-            candidates,
-          } as MainEvent);
-        });
-      },
-      responseContent: '',
-    };
-
-    runAgentLoop({
-      session: activeSession,
-      userInput: query,
-      systemPrompt,
-      tools,
-      ctx,
-      maxTurns: 40,
-      emit: (evt) => emitToRenderer(evt),
-    })
-      .then(() => persistCurrentConversation())
-      .catch((e) => {
-        persistCurrentConversation();
-        mainWindow?.webContents.send('xagent:event', {
-          type: 'error',
-          message: String(e?.message || e),
-        } as MainEvent);
-      });
-
-    return { sessionId: currentConversationId };
+    return runTaskInternal(query, { maxTurns: 40 });
   });
 
   ipcMain.handle('task:abort', () => {
@@ -394,13 +398,6 @@ function setupIPC(): void {
 
   // 触发记忆更新：发送特殊消息让 Agent 调用 start_long_term_update
   ipcMain.handle('memory:trigger', async () => {
-    if (!activeSession) {
-      mainWindow?.webContents.send('xagent:event', {
-        type: 'error',
-        message: '未配置 LLM，请先在设置中添加',
-      } as MainEvent);
-      return { success: false };
-    }
     if (conversationMessages.length === 0) {
       mainWindow?.webContents.send('xagent:event', {
         type: 'error',
@@ -408,72 +405,65 @@ function setupIPC(): void {
       } as MainEvent);
       return { success: false };
     }
-
-    stopSignal = { aborted: false };
-
-    // 发送触发记忆的特殊指令
     const triggerQuery = '[USER REQUEST] 请根据本次对话内容，触发 start_long_term_update 工具，提炼并更新长期记忆。';
+    const r = await runTaskInternal(triggerQuery, { maxTurns: 10 });
+    return { success: !!r.sessionId };
+  });
 
-    const userMsg: UIMessage = {
-      id: `u_${Date.now()}`,
-      role: 'user',
-      content: triggerQuery,
-      timestamp: Date.now(),
-    };
-    conversationMessages.push(userMsg);
-    persistCurrentConversation();
-    mainWindow?.webContents.send('xagent:user-msg', userMsg);
-
-    const workspaceDir = configStore.resolveCwd(settings.cwd, getUserDataDir());
+  // ─── 技能管理 IPC ────────────────────────────────────────────
+  ipcMain.handle('skills:list', () => {
     const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
-    const fileManager = new FileManager(workspaceDir);
-    const systemPrompt =
-      settings.system_prompt_override?.trim() ||
-      getSystemPrompt(workspaceDir, memoryDir, getAssetsDir());
-
-    const ctx = {
-      cwd: workspaceDir,
+    fs.mkdirSync(memoryDir, { recursive: true });
+    initMemoryDir(memoryDir, getAssetsDir());
+    return {
+      skills: listSkills(memoryDir),
       memoryDir,
-      fileManager,
-      sessionId: currentConversationId || undefined,
-      working: {} as Record<string, any>,
-      currentTurn: 0,
-      historyInfo: [] as string[],
-      settings,
-      stopSignal,
-      emit: () => {},
-      askUser: async (question: string, candidates?: string[]): Promise<string> => {
-        return new Promise<string>((resolve) => {
-          pendingAskUser = { resolve, question };
-          mainWindow?.webContents.send('xagent:event', {
-            type: 'ask_user',
-            question,
-            candidates,
-          } as MainEvent);
-        });
-      },
-      responseContent: '',
     };
+  });
 
-    runAgentLoop({
-      session: activeSession,
-      userInput: triggerQuery,
-      systemPrompt,
-      tools,
-      ctx,
-      maxTurns: 10,
-      emit: (evt) => emitToRenderer(evt),
-    })
-      .then(() => persistCurrentConversation())
-      .catch((e) => {
-        persistCurrentConversation();
-        mainWindow?.webContents.send('xagent:event', {
-          type: 'error',
-          message: String(e?.message || e),
-        } as MainEvent);
-      });
+  ipcMain.handle('skills:read', (_e, id: string) => {
+    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+    return readSkill(memoryDir, id);
+  });
 
-    return { success: true };
+  ipcMain.handle('skills:export', async (_e, id: string) => {
+    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+    const { skill } = readSkill(memoryDir, id);
+    if (!skill) return { ok: false, message: `未找到技能: ${id}` };
+
+    const picked = await dialog.showOpenDialog(mainWindow!, {
+      title: `导出技能 "${skill.name}" 到目录`,
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: app.getPath('downloads'),
+      buttonLabel: '导出到此目录',
+    });
+    if (picked.canceled || !picked.filePaths[0]) {
+      return { ok: false, message: '已取消' };
+    }
+    return exportSkill(memoryDir, id, picked.filePaths[0]);
+  });
+
+  ipcMain.handle('skills:reuse', async (_e, id: string) => {
+    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+    const { skill } = readSkill(memoryDir, id);
+    if (!skill) return { ok: false, message: `未找到技能: ${id}` };
+
+    // 复用 = 强制开新会话
+    if (activeSession) activeSession.clearHistory();
+    conversationMessages = [];
+    currentConversationId = null;
+    stopSignal.aborted = true;
+    pendingAskUser = null;
+
+    const prompt = buildReusePrompt(skill);
+    const r = await runTaskInternal(prompt, { maxTurns: 30 });
+    return { ok: !!r.sessionId, sessionId: r.sessionId };
+  });
+
+  ipcMain.handle('skills:open-in-explorer', async (_e, id: string) => {
+    const memoryDir = configStore.resolveMemoryDir(settings.memory_dir, getUserDataDir());
+    const { skill } = readSkill(memoryDir, id);
+    if (skill) shell.showItemInFolder(skill.absPath);
   });
 
   // ─── 文件管理 IPC ────────────────────────────────────────────

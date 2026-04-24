@@ -232,6 +232,41 @@ export const App: React.FC = () => {
     refreshMeta();
   };
 
+  /** 复用技能：清空 UI → 调主进程开新会话执行 */
+  const reuseSkill = async (skillId: string) => {
+    await resetTransientState();
+    setMessages([]);
+    setCurrentConvId(null);
+    setJustCompleted(false);
+    setRunning(true);
+    try {
+      const r = await window.xagent.reuseSkill(skillId);
+      if (r.ok && r.sessionId) {
+        setCurrentConvId(r.sessionId);
+      } else {
+        setRunning(false);
+        if (r.message) {
+          setMessages([{
+            id: `err_${Date.now()}`,
+            role: 'assistant',
+            content: `❌ 复用技能失败：${r.message}`,
+            timestamp: Date.now(),
+          }]);
+        }
+      }
+    } catch (e: any) {
+      setRunning(false);
+      setMessages([{
+        id: `err_${Date.now()}`,
+        role: 'assistant',
+        content: `❌ 复用技能异常：${e?.message || e}`,
+        timestamp: Date.now(),
+      }]);
+    }
+    refreshMeta();
+    inputRef.current?.focus();
+  };
+
   const switchLLM = async (name: string) => {
     await window.xagent.switchLLM(name);
     refreshMeta();
@@ -340,7 +375,11 @@ export const App: React.FC = () => {
       </main>
 
       {settingsOpen && (
-        <SettingsPanel onClose={() => setSettingsOpen(false)} onSave={saveSettings} />
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onSave={saveSettings}
+          onReuseSkill={reuseSkill}
+        />
       )}
 
       <ConfirmDialog

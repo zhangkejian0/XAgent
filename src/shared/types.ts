@@ -192,6 +192,16 @@ export interface XAgentAPI {
   cleanGeneratedFiles: (categories?: string[]) => Promise<{ cleaned: number; errors: string[] }>;
   /** 打开 .xagent 目录 */
   openXagentDir: () => void;
+  /** 列出已沉淀的技能（L3 SOP/Utils） */
+  listSkills: () => Promise<{ skills: SkillItem[]; memoryDir: string }>;
+  /** 读取技能详情（含完整内容） */
+  readSkill: (id: string) => Promise<{ skill: SkillItem | null; content: string }>;
+  /** 导出技能为 Anthropic Agent Skills 标准目录包，弹出系统目录选择 */
+  exportSkill: (id: string) => Promise<{ ok: boolean; path?: string; message?: string; files?: string[] }>;
+  /** 复用技能：自动新建会话并让 LLM 介绍 / 执行 */
+  reuseSkill: (id: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
+  /** 在系统资源管理器中打开技能文件 */
+  openSkillInExplorer: (id: string) => Promise<void>;
 }
 
 /** 文件分类 */
@@ -222,6 +232,23 @@ export interface FileStats {
   byCategory: Record<FileCategory, { count: number; size: number }>;
   cleanableCount: number;
   cleanableSize: number;
+}
+
+/** 技能（L3 SOP / Utils） */
+export interface SkillItem {
+  id: string;
+  name: string;
+  fileName: string;
+  absPath: string;
+  relPath: string;
+  type: 'md' | 'py' | 'other';
+  size: number;
+  updatedAt: string;
+  description: string;
+  preview: string;
+  attachments: { fileName: string; absPath: string; size: number }[];
+  accessCount: number;
+  lastAccess?: string;
 }
 
 declare global {

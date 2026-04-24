@@ -1,9 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import type { AppSettings, LLMConfig, FileRecord, FileStats, FileCategory } from '@shared/types';
+import type {
+  AppSettings,
+  LLMConfig,
+  FileRecord,
+  FileStats,
+  FileCategory,
+  SkillItem,
+} from '@shared/types';
 
 interface Props {
   onClose: () => void;
   onSave: (s: AppSettings) => void;
+  /** 复用技能：父组件负责关闭设置 + 新建会话 + 发送预设 prompt */
+  onReuseSkill?: (skillId: string) => void;
 }
 
 const DEFAULT_LLM: LLMConfig = {
@@ -92,13 +101,19 @@ function getActualCategory(category: string, filePath?: string): FileCategory {
   return OLD_CATEGORY_MAP[category] || 'other';
 }
 
-export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
+export const SettingsPanel: React.FC<Props> = ({ onClose, onSave, onReuseSkill }) => {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [fileStats, setFileStats] = useState<FileStats | null>(null);
   const [xagentDir, setXagentDir] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'llm' | 'files'>('llm');
+  const [activeTab, setActiveTab] = useState<'llm' | 'files' | 'skills'>('llm');
   const [selectedCategory, setSelectedCategory] = useState<FileCategory | 'all'>('all');
+  const [skills, setSkills] = useState<SkillItem[]>([]);
+  const [memoryDirPath, setMemoryDirPath] = useState<string>('');
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [skillDetailContent, setSkillDetailContent] = useState<string>('');
+  const [skillBusyId, setSkillBusyId] = useState<string | null>(null);
+  const [skillToast, setSkillToast] = useState<string>('');
 
   // 加载设置
   useEffect(() => {
@@ -121,6 +136,45 @@ export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
     return () => clearInterval(timer);
   }, [activeTab]);
 
+  // 技能列表（仅在 skills Tab 时加载）
+  useEffect(() => {
+    if (activeTab !== 'skills') return;
+    let aborted = false;
+    const fetchSkills = async () => {
+      const data = await window.xagent.listSkills();
+      if (aborted) return;
+      setSkills(data.skills);
+      setMemoryDirPath(data.memoryDir);
+      setSelectedSkillId((cur) => {
+        if (cur && data.skills.some((s) => s.id === cur)) return cur;
+        return data.skills[0]?.id || null;
+      });
+    };
+    fetchSkills();
+    return () => { aborted = true; };
+  }, [activeTab]);
+
+  // 加载技能详情
+  useEffect(() => {
+    if (activeTab !== 'skills' || !selectedSkillId) {
+      setSkillDetailContent('');
+      return;
+    }
+    let aborted = false;
+    window.xagent.readSkill(selectedSkillId).then((r) => {
+      if (aborted) return;
+      setSkillDetailContent(r.content || '');
+    });
+    return () => { aborted = true; };
+  }, [selectedSkillId, activeTab]);
+
+  // 自动消失的 toast
+  useEffect(() => {
+    if (!skillToast) return;
+    const t = setTimeout(() => setSkillToast(''), 4000);
+    return () => clearTimeout(t);
+  }, [skillToast]);
+
   if (!settings) return null;
 
   const updateLLM = (idx: number, patch: Partial<LLMConfig>) => {
@@ -139,9 +193,54 @@ export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
     });
   };
 
+  // ─── 技能操作 ─────────────────────────────────────────────
+  const handleReuseSkill = (id: string) => {
+    if (!onReuseSkill) {
+      setSkillToast('当前环境未注入复用回调');
+      return;
+    }
+    onReuseSkill(id);
+    onClose();
+  };
+
+  const handleExportSkill = async (id: string, name: string) => {
+    setSkillBusyId(id);
+    try {
+      const r = await window.xagent.exportSkill(id);
+      if (r.ok && r.path) {
+        setSkillToast(`✅ 已导出 "${name}" 到：${r.path}（${r.files?.length || 0} 个文件）`);
+      } else if (r.message === '已取消') {
+        // 取消导出不提示
+      } else {
+        setSkillToast(`❌ 导出失败：${r.message || '未知错误'}`);
+      }
+    } catch (e: any) {
+      setSkillToast(`❌ 导出异常：${e?.message || e}`);
+    } finally {
+      setSkillBusyId(null);
+    }
+  };
+
+  const handleOpenSkillFile = (id: string) => {
+    window.xagent.openSkillInExplorer(id);
+  };
+
+  const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '8px 16px',
+    background: active ? 'var(--bg-tertiary)' : 'transparent',
+    border: 'none',
+    borderBottom: active ? '2px solid var(--accent)' : 'none',
+    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+    cursor: 'pointer',
+  });
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700 }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: activeTab === 'skills' ? 900 : 700 }}
+      >
         <div className="modal-header">
           <h2>设置</h2>
           <button className="btn small" onClick={onClose}>✕</button>
@@ -150,28 +249,23 @@ export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
           <button
             className={`tab-btn ${activeTab === 'llm' ? 'active' : ''}`}
             onClick={() => setActiveTab('llm')}
-            style={{
-              padding: '8px 16px',
-              background: activeTab === 'llm' ? 'var(--bg-tertiary)' : 'transparent',
-              border: 'none',
-              borderBottom: activeTab === 'llm' ? '2px solid var(--accent)' : 'none',
-              color: activeTab === 'llm' ? 'var(--text-primary)' : 'var(--text-muted)',
-            }}
+            style={tabBtnStyle(activeTab === 'llm')}
           >
             LLM 配置
           </button>
           <button
             className={`tab-btn ${activeTab === 'files' ? 'active' : ''}`}
             onClick={() => setActiveTab('files')}
-            style={{
-              padding: '8px 16px',
-              background: activeTab === 'files' ? 'var(--bg-tertiary)' : 'transparent',
-              border: 'none',
-              borderBottom: activeTab === 'files' ? '2px solid var(--accent)' : 'none',
-              color: activeTab === 'files' ? 'var(--text-primary)' : 'var(--text-muted)',
-            }}
+            style={tabBtnStyle(activeTab === 'files')}
           >
             文件管理
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'skills' ? 'active' : ''}`}
+            onClick={() => setActiveTab('skills')}
+            style={tabBtnStyle(activeTab === 'skills')}
+          >
+            🧠 技能管理
           </button>
         </div>
 
@@ -428,8 +522,251 @@ export const SettingsPanel: React.FC<Props> = ({ onClose, onSave }) => {
           </div>
         </div>
       )}
+
+      {/* 技能管理 Tab */}
+      {activeTab === 'skills' && (
+        <div className="modal-body" style={{ padding: 0 }}>
+          {/* 顶部信息 */}
+          <div style={{ padding: '12px 16px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              <strong style={{ color: 'var(--text-primary)' }}>记忆目录：</strong> {memoryDirPath || '(未配置)'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              共 {skills.length} 个技能（来源：long-term memory L3 SOP / Utils）
+              <span style={{ marginLeft: 12, opacity: 0.8 }}>
+                复用 = 自动新建对话并由 LLM 介绍如何使用；导出 = 生成 Anthropic Agent Skills 标准目录包。
+              </span>
+            </div>
+          </div>
+
+          {/* toast */}
+          {skillToast && (
+            <div style={{
+              padding: '8px 16px',
+              background: 'var(--bg-secondary)',
+              borderBottom: '1px solid var(--border)',
+              fontSize: 12,
+              color: 'var(--text-primary)',
+            }}>
+              {skillToast}
+            </div>
+          )}
+
+          {/* 左右分栏：左列表，右详情 */}
+          <div style={{ display: 'flex', minHeight: 420, maxHeight: 520 }}>
+            {/* 左侧技能列表 */}
+            <div style={{
+              width: 360,
+              borderRight: '1px solid var(--border)',
+              overflowY: 'auto',
+              padding: '8px',
+            }}>
+              {skills.length === 0 && (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  justifyContent: 'center', height: 200, gap: 8,
+                  color: 'var(--text-muted)', fontSize: 12,
+                }}>
+                  <span style={{ fontSize: 32, opacity: 0.5 }}>🧠</span>
+                  <span>暂无沉淀的技能</span>
+                  <span style={{ fontSize: 11, opacity: 0.7, textAlign: 'center', maxWidth: 280 }}>
+                    完成长任务后，让 Agent 调用 <code>start_long_term_update</code> 工具，
+                    在 memory 目录新建 <code>*.md</code> / <code>*.py</code>，即可在此处看到对应技能。
+                  </span>
+                </div>
+              )}
+              {skills.map((s) => (
+                <SkillCard
+                  key={s.id}
+                  skill={s}
+                  active={s.id === selectedSkillId}
+                  busy={skillBusyId === s.id}
+                  onSelect={() => setSelectedSkillId(s.id)}
+                  onReuse={() => handleReuseSkill(s.id)}
+                  onExport={() => handleExportSkill(s.id, s.name)}
+                  onOpen={() => handleOpenSkillFile(s.id)}
+                />
+              ))}
+            </div>
+
+            {/* 右侧技能详情 */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+              {(() => {
+                const cur = skills.find((s) => s.id === selectedSkillId);
+                if (!cur) {
+                  return (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      height: '100%', color: 'var(--text-muted)', fontSize: 12,
+                    }}>
+                      选择左侧技能查看详情
+                    </div>
+                  );
+                }
+                return (
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                      {cur.type === 'py' ? '🐍' : '📘'} {cur.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                      {cur.relPath} · {formatFileSize(cur.size)} · 更新于 {formatTime(cur.updatedAt)}
+                      {cur.accessCount > 0 && <> · 访问 {cur.accessCount} 次</>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
+                      {cur.description}
+                    </div>
+                    {cur.attachments.length > 0 && (
+                      <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+                        <strong>关联脚本：</strong>
+                        {cur.attachments.map((a) => (
+                          <span key={a.fileName} style={{
+                            display: 'inline-block',
+                            marginLeft: 6,
+                            padding: '1px 6px',
+                            background: 'var(--bg-tertiary)',
+                            borderRadius: 4,
+                          }}>
+                            {a.fileName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                      <button className="btn primary small" onClick={() => handleReuseSkill(cur.id)}>
+                        ▶ 复用
+                      </button>
+                      <button
+                        className="btn small"
+                        onClick={() => handleExportSkill(cur.id, cur.name)}
+                        disabled={skillBusyId === cur.id}
+                      >
+                        {skillBusyId === cur.id ? '导出中…' : '📦 导出 SKILL 包'}
+                      </button>
+                      <button className="btn small" onClick={() => handleOpenSkillFile(cur.id)}>
+                        📂 打开文件
+                      </button>
+                    </div>
+                    <pre style={{
+                      background: 'var(--bg-tertiary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: 10,
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: 'var(--text-primary)',
+                      maxHeight: 320,
+                      overflow: 'auto',
+                      margin: 0,
+                    }}>
+                      {skillDetailContent || '(加载中…)'}
+                    </pre>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   </div>
+  );
+};
+
+/** 单个技能卡片 */
+interface SkillCardProps {
+  skill: SkillItem;
+  active: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onReuse: () => void;
+  onExport: () => void;
+  onOpen: () => void;
+}
+
+const SkillCard: React.FC<SkillCardProps> = ({
+  skill, active, busy, onSelect, onReuse, onExport, onOpen,
+}) => {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        padding: '10px 12px',
+        marginBottom: 6,
+        borderRadius: 6,
+        border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
+        background: active ? 'var(--bg-tertiary)' : 'transparent',
+        cursor: 'pointer',
+        transition: 'background 0.15s',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 14 }}>{skill.type === 'py' ? '🐍' : '📘'}</span>
+        <span style={{
+          flex: 1,
+          fontSize: 13,
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>
+          {skill.name}
+        </span>
+        {skill.accessCount > 0 && (
+          <span style={{
+            fontSize: 10,
+            color: 'var(--text-muted)',
+            padding: '1px 6px',
+            background: 'var(--bg-secondary)',
+            borderRadius: 8,
+          }}>
+            {skill.accessCount}
+          </span>
+        )}
+      </div>
+      <div style={{
+        fontSize: 11,
+        color: 'var(--text-muted)',
+        marginTop: 4,
+        lineHeight: 1.4,
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical' as any,
+        overflow: 'hidden',
+      }}>
+        {skill.description}
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+        <button
+          className="btn primary small"
+          style={{ fontSize: 11, padding: '2px 8px' }}
+          onClick={stop(onReuse)}
+          title="开新会话由 LLM 介绍并按需执行此技能"
+        >
+          ▶ 复用
+        </button>
+        <button
+          className="btn small"
+          style={{ fontSize: 11, padding: '2px 8px' }}
+          onClick={stop(onExport)}
+          disabled={busy}
+          title="导出为 Anthropic Agent Skills 兼容目录包"
+        >
+          {busy ? '导出中…' : '📦 导出'}
+        </button>
+        <button
+          className="btn small"
+          style={{ fontSize: 11, padding: '2px 8px' }}
+          onClick={stop(onOpen)}
+          title="在文件管理器中显示"
+        >
+          📂
+        </button>
+      </div>
+    </div>
   );
 };
 

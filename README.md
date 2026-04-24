@@ -8,6 +8,7 @@
 - **多 LLM 后端**：OpenAI 兼容 / Anthropic Claude / 本地模型（Ollama/LM Studio/vLLM）/ Mixin 故障转移
 - **L0-L4 四层记忆体系**：对齐 memory 结构
 - **skill_search 客户端**：支持从远程技能库语义检索
+- **技能管理**：浏览、复用、导出 L3 长期记忆（SOP/Utils）为 Anthropic Agent Skills 标准包
 - **现代聊天 UI**：消息流、工具调用卡片、思考/总结标签高亮、深色主题、会话历史管理
 
 ## 架构
@@ -24,6 +25,7 @@ XAgent/
 │   │       ├── sse.ts           # SSE 流解析
 │   │       ├── messages.ts      # 消息格式转换
 │   │       ├── memory.ts        # L0-L4 记忆系统
+│   │       ├── skills.ts        # L3 技能管理（浏览/复用/导出）
 │   │       ├── skillSearch.ts   # 远程技能检索
 │   │       ├── config.ts        # 设置 & 对话持久化
 │   │       └── tools/           # 9 个原子工具
@@ -119,6 +121,15 @@ npm run package
 - 任务进行中点击发送按钮变为 **停止** 按钮可中断
 
 ## 更新日志
+
+### v0.1.3
+
+- **技能管理**：新增技能管理模块，支持浏览、复用和导出 L3 长期记忆（SOP/Utils）
+  - **技能列表**：设置面板新增"🧠 技能管理"Tab，自动扫描 memory 目录下的 `*.md` / `*.py` 文件
+  - **复用技能**：一键复用已有技能，自动新建会话并由 LLM 读取并讲解如何使用（前置条件、关键步骤、避坑指南）
+  - **导出技能**：支持导出为 Anthropic Agent Skills 标准目录包（含 `SKILL.md` + `scripts/`），可直接安装到 Claude/Cursor Skills
+  - **访问统计**：自动追踪技能文件读取次数，按热度排序展示
+- **代码重构**：抽取 `runTaskInternal` 统一处理任务启动逻辑，支持 `task:send` / `memory:trigger` / `skills:reuse` 复用
 
 ### v0.1.1
 

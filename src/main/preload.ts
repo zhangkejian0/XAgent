@@ -27,6 +27,11 @@ const api = {
   listGeneratedFiles: () => ipcRenderer.invoke('files:list'),
   cleanGeneratedFiles: (categories?: string[]) => ipcRenderer.invoke('files:clean', categories),
   openXagentDir: () => ipcRenderer.invoke('files:open-xagent-dir'),
+  listSkills: () => ipcRenderer.invoke('skills:list'),
+  readSkill: (id: string) => ipcRenderer.invoke('skills:read', id),
+  exportSkill: (id: string) => ipcRenderer.invoke('skills:export', id),
+  reuseSkill: (id: string) => ipcRenderer.invoke('skills:reuse', id),
+  openSkillInExplorer: (id: string) => ipcRenderer.invoke('skills:open-in-explorer', id),
   onEvent: (cb: (evt: MainEvent) => void) => {
     const handler = (_e: any, evt: MainEvent) => cb(evt);
     ipcRenderer.on('xagent:event', handler);

@@ -23,6 +23,10 @@ const api = {
   openUserData: () => ipcRenderer.invoke('conv:open-userdata'),
   openDevTools: () => ipcRenderer.invoke('devtools:open'),
   focusWindow: () => ipcRenderer.invoke('window:focus'),
+  triggerMemoryUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke('memory:trigger'),
+  listGeneratedFiles: () => ipcRenderer.invoke('files:list'),
+  cleanGeneratedFiles: (categories?: string[]) => ipcRenderer.invoke('files:clean', categories),
+  openXagentDir: () => ipcRenderer.invoke('files:open-xagent-dir'),
   onEvent: (cb: (evt: MainEvent) => void) => {
     const handler = (_e: any, evt: MainEvent) => cb(evt);
     ipcRenderer.on('xagent:event', handler);

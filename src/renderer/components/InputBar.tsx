@@ -5,6 +5,10 @@ interface Props {
   onSend: (msg: string) => void;
   onAbort: () => void;
   placeholder?: string;
+  /** 是否显示触发记忆按钮 */
+  showMemoryTrigger?: boolean;
+  /** 触发记忆回调 */
+  onTriggerMemory?: () => void;
 }
 
 export interface InputBarHandle {
@@ -12,7 +16,7 @@ export interface InputBarHandle {
 }
 
 export const InputBar = forwardRef<InputBarHandle, Props>(
-  ({ running, onSend, onAbort, placeholder }, externalRef) => {
+  ({ running, onSend, onAbort, placeholder, showMemoryTrigger, onTriggerMemory }, externalRef) => {
     const [text, setText] = useState('');
     const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -78,14 +82,35 @@ export const InputBar = forwardRef<InputBarHandle, Props>(
               ■
             </button>
           ) : (
-            <button className="send-btn" onClick={submit} disabled={!text.trim()} title="发送 (Enter)">
-              ↑
-            </button>
+            <>
+              {showMemoryTrigger && onTriggerMemory && (
+                <button
+                  className="memory-btn"
+                  onClick={onTriggerMemory}
+                  title="触发记忆更新"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    marginRight: 4,
+                    fontSize: 14,
+                  }}
+                >
+                  📝
+                </button>
+              )}
+              <button className="send-btn" onClick={submit} disabled={!text.trim()} title="发送 (Enter)">
+                ↑
+              </button>
+            </>
           )}
         </div>
         <div className="status-bar">
           <span className={`dot ${running ? 'running' : ''}`}></span>
           <span>{running ? '思考中...' : '就绪'}</span>
+          {showMemoryTrigger && !running && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+              📝 可触发记忆
+            </span>
+          )}
         </div>
       </div>
     );

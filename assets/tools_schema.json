@@ -54,13 +54,15 @@
     "type": "function",
     "function": {
       "name": "file_write",
-      "description": "创建/覆盖/追加文件。用于大块写入，精细修改请用 file_patch。",
+      "description": "创建/覆盖/追加文件。用于大块写入，精细修改请用 file_patch。支持分类路由，文件会自动归档到 .xagent/ 目录下对应子目录。",
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string" },
+          "path": { "type": "string", "description": "文件路径。若指定 category，会被路由到 .xagent/{category}/ 目录" },
           "content": { "type": "string", "description": "要写入的内容" },
-          "mode": { "type": "string", "enum": ["overwrite", "append", "prepend"], "default": "overwrite" }
+          "mode": { "type": "string", "enum": ["overwrite", "append", "prepend"], "default": "overwrite" },
+          "category": { "type": "string", "enum": ["script", "output", "temp", "cache", "artifact", "log", "other"], "description": "文件分类，用于自动路由到 .xagent 子目录。不填则根据文件名推断" },
+          "description": { "type": "string", "description": "文件描述，用于在管理界面显示" }
         },
         "required": ["path", "content"]
       }

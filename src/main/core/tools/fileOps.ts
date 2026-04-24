@@ -6,6 +6,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { registerTool, type ToolContext, type ToolResult } from './types.js';
+import type { FileCategory } from '../fileManager.js';
 
 function resolvePath(ctx: ToolContext, p: string): string {
   if (!p) return ctx.cwd;
@@ -121,10 +122,21 @@ registerTool('file_read', async function* (args, ctx): AsyncGenerator<string, To
 // ── file_write ────────────────────────────────────────────
 registerTool('file_write', async function* (args, ctx): AsyncGenerator<string, ToolResult> {
   const rawPath = args.path || '';
-  const abs = resolvePath(ctx, rawPath);
   const mode: 'overwrite' | 'append' | 'prepend' = args.mode || 'overwrite';
+  const category: FileCategory | undefined = args.category;
+  const description: string | undefined = args.description;
+
+  // 文件路由：如果指定了 category，使用 FileManager 路由
+  let abs: string;
+  if (ctx.fileManager && category) {
+    abs = ctx.fileManager.routeFile(rawPath, category);
+  } else {
+    abs = resolvePath(ctx, rawPath);
+  }
+
   const actionStr = { prepend: 'Prepending to', append: 'Appending to', overwrite: 'Overwriting' }[mode];
-  yield `[Action] ${actionStr} file: ${path.basename(abs)}\n`;
+  const displayPath = path.basename(abs);
+  yield `[Action] ${actionStr} file: ${displayPath}\n`;
 
   let content: string = args.content ?? '';
   // 也支持从回复正文 <file_content> / ``` 提取
@@ -159,7 +171,23 @@ registerTool('file_write', async function* (args, ctx): AsyncGenerator<string, T
       fs.writeFileSync(abs, content);
     }
     yield `[Status] ${mode} 成功 (${content.length} bytes)\n`;
-    return { data: { status: 'success', writed_bytes: content.length }, nextPrompt: '\n' };
+
+    // 注册到 FileManager
+    if (ctx.fileManager) {
+      const actualCategory = category || ctx.fileManager.inferCategory(abs);
+      ctx.fileManager.registerFile(abs, actualCategory, ctx.sessionId, description);
+    }
+
+    // 返回实际写入路径
+    return {
+      data: {
+        status: 'success',
+        writed_bytes: content.length,
+        path: abs,
+        category: category || (ctx.fileManager?.inferCategory(abs)),
+      },
+      nextPrompt: '\n',
+    };
   } catch (e: any) {
     yield `[Status] 写入异常: ${e.message}\n`;
     return { data: { status: 'error', msg: e.message }, nextPrompt: '\n' };
@@ -204,6 +232,13 @@ registerTool('file_patch', async function* (args, ctx): AsyncGenerator<string, T
     }
     fs.writeFileSync(abs, parts.join(newContent));
     yield `\n文件局部修改成功\n`;
+    
+    // 注册到 FileManager
+    if (ctx.fileManager) {
+      const category = ctx.fileManager.inferCategory(abs);
+      ctx.fileManager.registerFile(abs, category, ctx.sessionId);
+    }
+    
     return { data: { status: 'success', msg: '文件局部修改成功' }, nextPrompt: '\n' };
   } catch (e: any) {
     return { data: { status: 'error', msg: e.message }, nextPrompt: '\n' };

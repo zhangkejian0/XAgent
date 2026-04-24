@@ -1,4 +1,5 @@
 import type { AppSettings } from '@shared/types';
+import type { FileManager } from '../fileManager.js';
 
 /** 工具执行上下文 */
 export interface ToolContext {
@@ -6,6 +7,10 @@ export interface ToolContext {
   cwd: string;
   /** 记忆目录（绝对路径，独立于 cwd） */
   memoryDir: string;
+  /** 文件管理器 */
+  fileManager?: FileManager;
+  /** 当前会话 ID */
+  sessionId?: string;
   /** 工作便签（短期记忆） */
   working: Record<string, any>;
   /** 当前轮次 */

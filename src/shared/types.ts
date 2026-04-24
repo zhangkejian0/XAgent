@@ -180,6 +180,48 @@ export interface XAgentAPI {
   openDevTools: () => void;
   /** 重新让窗口获得键盘焦点（原生 confirm/alert 关闭后调用） */
   focusWindow: () => Promise<void>;
+  /** 手动触发记忆更新 */
+  triggerMemoryUpdate: () => Promise<{ success: boolean }>;
+  /** 获取生成文件列表 */
+  listGeneratedFiles: () => Promise<{
+    files: FileRecord[];
+    stats: FileStats;
+    xagentDir: string;
+  }>;
+  /** 清理生成文件 */
+  cleanGeneratedFiles: (categories?: string[]) => Promise<{ cleaned: number; errors: string[] }>;
+  /** 打开 .xagent 目录 */
+  openXagentDir: () => void;
+}
+
+/** 文件分类 */
+export type FileCategory =
+  | 'document'    // 文档
+  | 'spreadsheet' // 表格
+  | 'image'       // 图片
+  | 'code'        // 代码
+  | 'ppt'         // PPT
+  | 'pdf'         // PDF
+  | 'other';      // 其他
+
+/** 文件记录 */
+export interface FileRecord {
+  path: string;
+  category: FileCategory;
+  createdAt: string;
+  sessionId?: string;
+  description?: string;
+  size?: number;
+  cleanable: boolean;
+}
+
+/** 文件统计 */
+export interface FileStats {
+  totalFiles: number;
+  totalSize: number;
+  byCategory: Record<FileCategory, { count: number; size: number }>;
+  cleanableCount: number;
+  cleanableSize: number;
 }
 
 declare global {
